@@ -123,36 +123,38 @@ def wild_hands(hand,res=list()):
 	return res
 
 def find_prefixes(hand, pre='', results=None):
+	for each_hand in wild_hands(hand):
 	## Cache the most recent full hand (don't cache intermediate results)
-	global prev_hand, prev_results
-	if hand == prev_hand: return prev_results
-	if results is None: results = set()
-	if pre == '': prev_hand, prev_results = hand, results
-	# Now do the computation
-	if pre in WORDS or pre in PREFIXES: results.add(pre)
-	if pre in PREFIXES:
-		for L in hand:
-			find_prefixes(hand.replace(L, '', 1), pre+L, results)
+		global prev_hand, prev_results
+		if each_hand == prev_hand: return prev_results
+		if results is None: results = set()
+		if pre == '': prev_hand, prev_results = each_hand, results
+		# Now do the computation
+		if pre in WORDS or pre in PREFIXES: results.add(pre)
+		if pre in PREFIXES:
+			for L in each_hand:
+				find_prefixes(each_hand.replace(L, '', 1), pre+L, results)
 	return results
 
 def row_plays(hand, row):
-	"Return a set of legal plays in row.  A row play is an (start, 'WORD') pair."
-	results = set()
-	## To each allowable prefix, add all suffixes, keeping words
-	for (i, sq) in enumerate(row[1:-1], 1):
-		if isinstance(sq, set):
-			pre, maxsize = legal_prefix(i, row)
-			if pre: ## Add to the letters already on the board
-				start = i - len(pre)
-				add_suffixes(hand, pre, start, row, results, anchored=False)
-			else: ## Empty to left: go through the set of all possible prefixes
-				for pre in find_prefixes(hand):
-					if len(pre) <= maxsize:
-						start = i - len(pre)
-						add_suffixes(removed(hand, pre), pre, start, row, results,
-									 anchored=False)
+	for each_hand in wild_hands(hand):
+		"Return a set of legal plays in row.  A row play is an (start, 'WORD') pair."
+		results = set()
+		## To each allowable prefix, add all suffixes, keeping words
+		for (i, sq) in enumerate(row[1:-1], 1):
+			if isinstance(sq, set):
+				pre, maxsize = legal_prefix(i, row)
+				if pre: ## Add to the letters already on the board
+					start = i - len(pre)
+					add_suffixes(each_hand, pre, start, row, results, anchored=False)
+				else: ## Empty to left: go through the set of all possible prefixes
+					for pre in find_prefixes(each_hand):
+						if len(pre) <= maxsize:
+							start = i - len(pre)
+							add_suffixes(removed(each_hand, pre), pre, start, row, results,
+										 anchored=False)
 	return results
-
+# print(row_plays('_BCEHKN','|A.....BE.C...D.|'))
 def find_cross_word(board, i, j):
 	"""Find the vertical word that crosses board[j][i]. Return (j2, w),
 	where j2 is the starting row, and w is the word"""
