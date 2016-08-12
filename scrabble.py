@@ -78,7 +78,7 @@ LETTERS = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
 ANY = anchor(LETTERS) # The anchor that can be any letter
 
 def is_letter(sq):
-	return isinstance(sq, str) and sq in LETTERS
+	return isinstance(sq, str) and sq.upper() in LETTERS
 
 def is_empty(sq):
 	"Is this an empty square (no letters, but a valid position on board)."
@@ -87,18 +87,29 @@ def is_empty(sq):
 def add_suffixes(hand, pre, start, row, results, anchored=True):
 	"Add all possible suffixes, and accumulate (start, word) pairs in results."
 	i = start + len(pre)
-	if pre in WORDS and anchored and not is_letter(row[i]):
+	if pre.upper() in WORDS and anchored and not is_letter(row[i]):
 		results.add((start, pre))
-	if pre in PREFIXES:
+	if pre.upper() in PREFIXES:
 		sq = row[i]
 		if is_letter(sq):
 			add_suffixes(hand, pre+sq, start, row, results)        
 		elif is_empty(sq):        
 			possibilities = sq if isinstance(sq, set) else ANY
 			for L in hand:
-				if L in possibilities:
+				if L.upper() in possibilities:#winning change? convert to upper.
 					add_suffixes(hand.replace(L, '', 1), pre+L, start, row, results)
 	return results
+
+def add_wildcard_suffixes(hand,pre,start,row,results,anchored=True):
+	collect = set()
+	if '_' in hand:
+		new_hands = repl_underscores(hand)
+	else:
+		new_hands = [hand]
+	suffix_replaced = [add_suffixes(h,pre,start,row,results) for h in new_hands]
+	for suffixes in suffix_replaced:
+		collect = collect | suffixes
+	return collect
 
 def legal_prefix(i, row):
 	"""A legal prefix of an anchor at row[i] is either a string of letters
@@ -114,47 +125,61 @@ def legal_prefix(i, row):
 
 prev_hand, prev_results = '', set() # cache for find_prefixes
 
-def wild_hands(hand,res=list()):
-	if '_' not in hand: return res
-	hands = [hand.replace('_',letter,1) for letter in string.ascii_lowercase]
-	res.extend([hand for hand in hands if '_' not in hand])
-	for hand in hands:
-		 wild_hands(hand)
-	return res
+def repl_underscores(letters):
+    res = list()
+    if '_' not in letters: return res
+    repl = [letters.replace('_',letter,1) for letter in string.ascii_lowercase]
+    res = res + repl 
+    for each in repl:
+        res = res + repl_underscores(each) 
+    return res
+
+def find_wildcard_prefixes(hand):
+	collect = set()
+	if '_' in hand:
+		new_hands = repl_underscores(hand)
+	else:
+		new_hands = [hand]
+	prefix_replaced = [find_prefixes(h) for h in new_hands] #need to also keep the lowercase version for scoring
+	for prefixes in prefix_replaced:
+		collect = collect | prefixes
+	return collect
 
 def find_prefixes(hand, pre='', results=None):
-	for each_hand in wild_hands(hand):
 	## Cache the most recent full hand (don't cache intermediate results)
-		global prev_hand, prev_results
-		if each_hand == prev_hand: return prev_results
-		if results is None: results = set()
-		if pre == '': prev_hand, prev_results = each_hand, results
-		# Now do the computation
-		if pre in WORDS or pre in PREFIXES: results.add(pre)
-		if pre in PREFIXES:
-			for L in each_hand:
-				find_prefixes(each_hand.replace(L, '', 1), pre+L, results)
+	global prev_hand, prev_results
+	if hand == prev_hand: return prev_results
+	if results is None: results = set()
+	if pre == '': prev_hand, prev_results = hand, results
+	# Now do the computation
+	if pre.upper() in WORDS or pre.upper() in PREFIXES: results.add(pre) 
+	if pre.upper() in PREFIXES:
+		for L in hand:
+			find_prefixes(hand.replace(L, '', 1), pre+L, results)
 	return results
+# print(find_wildcard_prefixes('__CEHKN'))
+# print(find_prefixes('_BCEHKN'))
 
 def row_plays(hand, row):
-	for each_hand in wild_hands(hand):
-		"Return a set of legal plays in row.  A row play is an (start, 'WORD') pair."
-		results = set()
-		## To each allowable prefix, add all suffixes, keeping words
-		for (i, sq) in enumerate(row[1:-1], 1):
-			if isinstance(sq, set):
-				pre, maxsize = legal_prefix(i, row)
-				if pre: ## Add to the letters already on the board
-					start = i - len(pre)
-					add_suffixes(each_hand, pre, start, row, results, anchored=False)
-				else: ## Empty to left: go through the set of all possible prefixes
-					for pre in find_prefixes(each_hand):
-						if len(pre) <= maxsize:
-							start = i - len(pre)
-							add_suffixes(removed(each_hand, pre), pre, start, row, results,
-										 anchored=False)
+	add_suffixes = add_wildcard_suffixes
+	find_prefixes = find_wildcard_prefixes
+	"Return a set of legal plays in row.  A row play is an (start, 'WORD') pair."
+	results = set()
+	## To each allowable prefix, add all suffixes, keeping words
+	for (i, sq) in enumerate(row[1:-1], 1):
+		if isinstance(sq, set):
+			pre, maxsize = legal_prefix(i, row)
+			if pre: ## Add to the letters already on the board
+				start = i - len(pre)
+				add_suffixes(hand, pre, start, row, results, anchored=False)
+			else: ## Empty to left: go through the set of all possible prefixes
+				for pre in find_prefixes(hand):
+					if len(pre) <= maxsize:
+						start = i - len(pre)
+						add_suffixes(removed(hand, pre), pre, start, row, results,
+									 anchored=False)
 	return results
-# print(row_plays('_BCEHKN','|A.....BE.C...D.|'))
+
 def find_cross_word(board, i, j):
 	"""Find the vertical word that crosses board[j][i]. Return (j2, w),
 	where j2 is the starting row, and w is the word"""
@@ -268,6 +293,8 @@ def test():
 	assert ok('_BCEHKN', 62, (3, 2), (1, 0), 'BaCKBENCH')
 	assert ok('__CEHKN', 61, (9, 1), (1, 0), 'KiCk')
 
-# print (test())
-
-print((best_play('_BCEHKN',a_board())))
+# print(sorted(all_plays('_BCEHKN',a_board()),key= lambda x: x[0]))
+# print(best_play('__CEHKN',a_board()))
+# test()
+import cProfile 
+cProfile.run("best_play('__CEHKN',a_board())")
