@@ -28,13 +28,15 @@ def anagrams(phrase, shortest=2):
     lexicographic order (not all permutations)."""
     return anagram_dispatch(phrase,'',shortest)
 
-def anagram_dispatch(phrase,previous='',shortest=2,final_set=set()):
+def anagram_dispatch(phrase,previous='',shortest=2,final_set=None):
+    if final_set == None:
+        final_set = set()
     phrase = phrase.replace(' ','')
     if not phrase:
         final_set.add(' '.join(sorted(previous.split())))
         return
     for word in find_words(phrase):  
-        anagram_dispatch(removed(phrase,word),word+' '+previous)
+        anagram_dispatch(removed(phrase,word),word+' '+previous,2,final_set)
     return final_set
 
 # ------------
@@ -87,12 +89,9 @@ def test():
         'CON PI THY', 'HYP NO TIC', 'COY NTH PI', 'CON HYP IT', 'COT HYP IN',
         'CON HYP TI'])
     return 'tests pass'
-
-    assert anagrams('PYTHONIC')==set([
-        'NTH PIC YO', 'NTH OY PIC', 'ON PIC THY', 'NO PIC THY', 'COY IN PHT',
-        'ICY NO PHT', 'ICY ON PHT', 'ICY NTH OP', 'COP IN THY', 'HYP ON TIC',
-        'CON PI THY', 'HYP NO TIC', 'COY NTH PI', 'CON HYP IT', 'COT HYP IN',
-        'CON HYP TI'])
-
-print (anagrams('ELVIS'))
+## Originally failed when first running this with line 31 final_set = set() rather than
+## doing the "if None : set()" trick.  This is because the same set was getting added to
+## on each assertion so the set was slowly growing and by the final "PYTHONIC" test it 
+## included not only everything before it but the entire anagram list from PYTHONIC as well
+print(test())
 

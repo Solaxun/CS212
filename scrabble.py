@@ -1,5 +1,5 @@
 import string
-
+from functools import lru_cache
 # -----------------
 # User Instructions
 # 
@@ -84,7 +84,17 @@ def is_empty(sq):
 	"Is this an empty square (no letters, but a valid position on board)."
 	return sq  == '.' or sq == '*' or isinstance(sq, set) 
 
-def add_suffixes(hand, pre, start, row, results, anchored=True):
+def numcalls(func):
+	def inner(*args,**kwargs):
+		inner.calls +=1 
+		return func(*args,**kwargs)
+	inner.calls = 0
+	return inner
+def disabled(func): return func
+numcalls = disabled
+
+def add_suffixes(hand, pre, start, row, results=None, anchored=True):
+	if results is None: results = set()
 	"Add all possible suffixes, and accumulate (start, word) pairs in results."
 	i = start + len(pre)
 	if pre.upper() in WORDS and anchored and not is_letter(row[i]):
@@ -96,10 +106,11 @@ def add_suffixes(hand, pre, start, row, results, anchored=True):
 		elif is_empty(sq):        
 			possibilities = sq if isinstance(sq, set) else ANY
 			for L in hand:
-				if L.upper() in possibilities:#winning change? convert to upper.
+				if L.upper() in possibilities:
 					add_suffixes(hand.replace(L, '', 1), pre+L, start, row, results)
 	return results
 
+# @numcalls
 def add_wildcard_suffixes(hand,pre,start,row,results,anchored=True):
 	collect = set()
 	if '_' in hand:
@@ -123,16 +134,15 @@ def legal_prefix(i, row):
 	while is_empty(row[s-1]) and not isinstance(row[s-1], set): s -= 1
 	return ('', i-s)
 
-prev_hand, prev_results = '', set() # cache for find_prefixes
-
-def repl_underscores(letters):
-    res = list()
-    if '_' not in letters: return res
-    repl = [letters.replace('_',letter,1) for letter in string.ascii_lowercase]
-    res = res + repl 
-    for each in repl:
-        res = res + repl_underscores(each) 
-    return res
+def repl_underscores(letters,res=None):
+	if res == None: res  = list()
+	if '_' not in letters:
+		res += [letters]
+	if '_' in letters:
+		repl = [letters.replace('_',letter,1) for letter in string.ascii_lowercase]
+		for each in repl:
+			repl_underscores(each,res) 
+	return res
 
 def find_wildcard_prefixes(hand):
 	collect = set()
@@ -141,9 +151,12 @@ def find_wildcard_prefixes(hand):
 	else:
 		new_hands = [hand]
 	prefix_replaced = [find_prefixes(h) for h in new_hands] #need to also keep the lowercase version for scoring
+	# print(prefix_replaced)
 	for prefixes in prefix_replaced:
 		collect = collect | prefixes
 	return collect
+
+prev_hand, prev_results = '', set() # cache for find_prefixes
 
 def find_prefixes(hand, pre='', results=None):
 	## Cache the most recent full hand (don't cache intermediate results)
@@ -152,17 +165,24 @@ def find_prefixes(hand, pre='', results=None):
 	if results is None: results = set()
 	if pre == '': prev_hand, prev_results = hand, results
 	# Now do the computation
-	if pre.upper() in WORDS or pre.upper() in PREFIXES: results.add(pre) 
+	if pre.upper() in WORDS or pre.upper() in PREFIXES: results.add(pre) #check upper to maintain lower in results
 	if pre.upper() in PREFIXES:
 		for L in hand:
 			find_prefixes(hand.replace(L, '', 1), pre+L, results)
 	return results
-# print(find_wildcard_prefixes('__CEHKN'))
-# print(find_prefixes('_BCEHKN'))
+# for i in range(10):
+# 	print(find_wildcard_prefixes('__CEHKN'))
 
-def row_plays(hand, row):
-	add_suffixes = add_wildcard_suffixes
-	find_prefixes = find_wildcard_prefixes
+@numcalls
+def row_plays_wild(hand,row):
+	hand = repl_underscores(hand)
+	res = set()
+	for h in hand:
+		plays = row_plays(h,row) #this is a set 
+		res = res | plays
+	return res
+
+def row_plays(hand, row): #add_wildcard_suffix called 3,826 times, why? -> should be once per anchor for each of 18 row_plays calls
 	"Return a set of legal plays in row.  A row play is an (start, 'WORD') pair."
 	results = set()
 	## To each allowable prefix, add all suffixes, keeping words
@@ -171,12 +191,12 @@ def row_plays(hand, row):
 			pre, maxsize = legal_prefix(i, row)
 			if pre: ## Add to the letters already on the board
 				start = i - len(pre)
-				add_suffixes(hand, pre, start, row, results, anchored=False)
+				add_wildcard_suffixes(hand, pre, start, row, results, anchored=False)
 			else: ## Empty to left: go through the set of all possible prefixes
-				for pre in find_prefixes(hand):
+				for pre in find_wildcard_prefixes(hand):
 					if len(pre) <= maxsize:
 						start = i - len(pre)
-						add_suffixes(removed(hand, pre), pre, start, row, results,
+						add_wildcard_suffixes(removed(hand, pre), pre, start, row, results,
 									 anchored=False)
 	return results
 
@@ -242,17 +262,16 @@ def cross_word_score(board, L, pos, direction):
 	return calculate_score(board, (i, j2), DOWN, L, word.replace('.', L))    
   
 ACROSS, DOWN = (1, 0), (0, 1) # Directions that words can go
-   
+@numcalls  
 def horizontal_plays(hand, board):
 	"Find all horizontal plays -- (score, pos, word) pairs -- across all rows."
 	results = set()
 	for (j, row) in enumerate(board[1:-1], 1):
 		set_anchors(row, j, board)
-		for (i, word) in row_plays(hand, row):
+		for (i, word) in row_plays_wild(hand, row):
 			score = calculate_score(board, (i, j), ACROSS, hand, word)
 			results.add((score, (i, j), word))
 	return results
-
 
 def all_plays(hand, board):
 	"""All plays in both directions. A play is a (score, pos, dir, word) tuple,
@@ -293,8 +312,12 @@ def test():
 	assert ok('_BCEHKN', 62, (3, 2), (1, 0), 'BaCKBENCH')
 	assert ok('__CEHKN', 61, (9, 1), (1, 0), 'KiCk')
 
-# print(sorted(all_plays('_BCEHKN',a_board()),key= lambda x: x[0]))
-# print(best_play('__CEHKN',a_board()))
-# test()
-import cProfile 
-cProfile.run("best_play('__CEHKN',a_board())")
+test()
+
+# def repl_underscores(letters):
+#     res = list()
+#     if '_' not in letters: return res
+#     repl = [letters.replace('_',letter,1) for letter in string.ascii_lowercase]
+#     res = res + repl 
+#     for each in repl:
+#         res = res + repl_underscores(each) 
