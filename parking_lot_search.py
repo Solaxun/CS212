@@ -109,7 +109,8 @@ def solve_parking_puzzle(start, N=N):
     of (object, locations) pairs).  Return a path of [state, action, ...]
     alternating items; an action is a pair (object, distance_moved),
     such as ('B', 16) to move 'B' two squares down on the N=8 grid."""
-    
+    start = show(start)
+    return(shortest_path_search(start,successors,is_goal))
 # But it would also be nice to have a simpler format to describe puzzles,
 # and a way to visualize states.
 # You will do that by defining the following two functions:
@@ -122,9 +123,11 @@ def grid(cars, N=N):
     top = list(range(N))
     bottom = list(range(N**2-N, N**2))
     right = [side for side in range(top[-1],bottom[-1],N)]
-    goal = [('@',tuple([right[len(right) // 2]]))]
+    goal_pos = right[len(right) // 2]
+    goal = [('@',tuple([goal_pos]))]
     left = [side for side in range(top[0],bottom[0],N)]
-    border = [('|',tuple(top+bottom+left+right))]
+    #set bc left border and right border share one el with top / bottom
+    border = [('|',tuple(set(top+bottom+left+right)-{goal_pos}))]
     return tuple(border + goal + list(cars))
     """Return a tuple of (object, locations) pairs -- the format expected for
     this puzzle.  This function includes a wall pair, ('|', (0, ...)) to 
@@ -134,7 +137,7 @@ def grid(cars, N=N):
     tuple of pairs like ('*', (26, 27)). The return result is a big tuple
     of the 'cars' pairs along with the walls and goal pairs."""
 
-def show(state, N=N):
+def show(state, N=N, pretty=False):
     "Print a representation of a state as an NxN grid."
     # Initialize and fill in the board.
     board = ['.'] * N**2
@@ -142,9 +145,12 @@ def show(state, N=N):
         for s in squares:
             board[s] = c
     # Now print it out
-    for i,s in enumerate(board):
-        print (s,end='')
-        if i % N == N - 1: print()
+    if pretty:
+        for i,s in enumerate(board):
+            print (s,)#(s,end='')
+            if i % N == N - 1: print()
+        return
+    return board
 
 # Here we see the grid and locs functions in use:
 
@@ -195,17 +201,207 @@ def shortest_path_search(start, successors, is_goal):
     return []
 
 def path_actions(path):
+    # print(path)
+    sides = list_sides(path[0])
+    N = int(len(path[0]) ** 0.5)
+    extra_moves = {'R':1,'L':-1,'T':-N,'B':N}
+    em = extra_moves[sides[path[0].index('@')]]
     "Return a list of actions in this path."
-    return path[1::2]
+    actions = path[1::2]
+    # return actions
+    return [(a[0], a[1] + em) if a[0] == '*' else (a[0], a[1]) for a in actions] 
 
 def get_orientation(car):
-    carsymbol,locs = car
-    if '@' in carsymbol or '|' in carsymbol:
-        return 
-    elif locs[1] - locs[0] == 1:
-        return 'H'
-    else:
-        return 'V'
+    carsymbol,loc = car
+    if carsymbol not in '@|':
+        return 'H' if loc[1] - loc[0] == 1 else 'V'
 
-for car in puzzle1:
-    print(get_orientation(car))
+def legal_moves(car,board,N=N):
+    """clean this ugly thing up"""
+    # left,right,up,down = (-1, 1, -N, N)
+    pos, locs  = get_orientation(car), car[1]
+    moves = []
+    if pos == 'V':
+        for downmove in range(max(locs)+N,N ** 2,N):
+            if board[downmove] != '.':
+                break
+            else:
+                moves.append(downmove)
+        for upmove in range(min(locs)-N,0,-N):
+            if board[upmove] != '.':
+                break
+            else:
+                moves.append(upmove)
+    elif pos == 'H':
+        rightmost =  max(locs) + 1
+        leftmost  =  min(locs) - 1
+        while board[rightmost] not in '|':
+            if board[rightmost] not in '@.':
+                break
+            else:
+                moves.append(rightmost)
+            rightmost += 1
+        while board[leftmost] not in '|':
+            if board[leftmost] not in '@.':
+                break
+            else:
+                moves.append(leftmost)
+            leftmost -= 1
+    return set(moves)
+
+def game_board(state):
+    cars = set(state) - set('|.')
+    carmap = dict()
+    for ix,item in enumerate(state):
+        if item in cars:
+            if item in carmap:
+                carmap[item].append(ix)
+            else:
+                carmap[item] = [ix]
+    board = tuple(carmap.items())
+    return tuple(map(lambda x: tuple([x[0],tuple(x[1])]),board))
+# print(game_board(show(puzzle1)))
+
+def successors(state):
+    dirs = {'H':1,'V':N}
+    #game_board needs to return tuple representation car,locs
+    cars = [car for car in game_board(state) if car[0] != '@']
+    succ = {}
+    for car in cars:
+        carsymbol, locations = car
+        direction = get_orientation(car)
+        moves = legal_moves(car,state) #e.g. (20,28)
+        carsize = len(locations)
+        inc = dirs[direction]
+        if moves:
+            for move in moves:
+                new_board = list(state)[:]
+                for old_loc in locations:
+                    new_board[old_loc] = '.'
+                if move > max(locations):
+                    m = (move - max(locations)) 
+                    new_moves = locs((move - (carsize - 1) * inc), carsize, inc)
+                elif move < min(locations):
+                    m = (move - min(locations)) 
+                    new_moves = locs(move, carsize, inc)
+                for move in new_moves:
+                    new_board[move] = carsymbol
+                succ[tuple(new_board)] = [carsymbol,m]
+            # if carsymbol == 'G':
+            #     return succ
+    return succ
+
+def list_sides(state):
+    n = int(len(state) ** 0.5)
+    top = list(range(n))
+    bottom = list(range(n**2-n, n**2))
+    right = [side for side in range(top[-1],bottom[-1],n)]
+    left = [side for side in range(top[0],bottom[0],n)]
+    area = dict()
+    for b in bottom:
+        for t in top:
+            for r in right:
+                for l in left:
+                    area[b]='B'
+                    area[t]='T'
+                    area[l]='L'
+                    area[r]='R'
+    return area
+
+# def is_goal(state):
+#     N = int(len(state) ** 0.5)
+#     goalpos = {'L':1,'R':-1,'B':N,'T':-N}
+#     area = list_sides(state)
+#     goal = state.index('@')
+#     goaldir = goalpos[area[goal]]
+#     return (state[goal + goaldir] == '*')
+
+def is_goal(state):
+    # print(state)
+    "Goal is when the car (*) overlaps a goal square (@)."
+    d = dict(game_board(state))
+    return set(d['*']) & set(d['@'])
+
+def test():
+    global puzzle1
+    puzzle1 = show(puzzle1)
+    #TODO fix so moves can only be in contiguous decimals (see last test case)
+    assert  legal_moves(('B', (20,28,36)),puzzle1,N) == set([12,44,52])
+    assert  legal_moves(('G', (9, 10)),puzzle1,N) == set([11,12,13])
+    assert  legal_moves(('O', (41, 49)),puzzle1,N) == set([])
+    assert  legal_moves(('A', (45, 46)),puzzle1,N) == set([44,43,42])
+    assert  legal_moves(('Y', (14,22,30)),puzzle1,N) == set([38])
+    return 'tests pass!'
+# test()
+path = solve_parking_puzzle(puzzle1,N=8)
+print(path)
+# print(path_actions(path))
+
+
+def test_parking():
+    assert valid_solution(puzzle1, 4)
+    assert valid_solution(puzzle2, 7)
+    assert valid_solution(puzzle3, 7)
+    assert valid_solution(puzzle4, 8)
+    assert locs(26, 2) == (26, 27)
+    assert locs(20, 3, 8) == (20, 28, 36)
+    assert same_state(
+        grid((('*', locs(25, 2)),
+              ('B', locs(19, 3, N)),
+              ('P', locs(36, 3)),
+              ('O', locs(45, 2, N)),
+              ('Y', locs(49, 3)))),
+        (('*', (25, 26)), ('B', (19, 27, 35)), ('P', (36, 37, 38)), 
+         ('O', (45, 53)), ('Y', (49, 50, 51)), 
+         ('|', (0, 1, 2, 3, 4, 5, 6, 7, 56, 57, 58, 59, 60, 61, 62, 63, 
+                8, 16, 24, 32, 40, 48, 15, 23, 39, 47, 55)), 
+            ('@', (31,))))
+
+puzzle4 = grid((
+    ('*', locs(26, 2)),
+    ('G', locs(9, 2)),
+    ('Y', locs(14, 3, N)),
+    ('P', locs(17, 3, N)),
+    ('O', locs(41, 2, N)),
+    ('B', locs(20, 3, N)),
+    ('A', locs(45, 2)),
+    ('S', locs(51, 3))))
+
+def valid_solution(puzzle, length):
+    "Does solve_parking_puzzle solve this puzzle in length steps?"
+    path = solve_parking_puzzle(puzzle)
+    return (len(path_actions(path)) == length and
+            # same_state(game_board(path[0]), puzzle) and
+            is_goal(path[-1])and
+            all(legal_step(path[i:i+3]) for i in range(0,len(path)-2, 2)))
+
+def legal_step(path):
+    "A legal step has an action that leads to a valid successor state."
+    # Here the path must be of the form [s0, a, s1].
+    state1, action, state2 = path 
+    succs = successors(state1)
+    return state2 in succs and succs[state2] == action
+
+def same_state(state1, state2):
+    # print(state1)
+    # print()
+    # print(state2)
+    # state1 ,state2 = game_board(state1), game_board(state2)
+    "Two states are the same if all corresponding sets of locs are the same."
+    d1, d2 = dict(state1), dict(state2)
+    return all(set(d1[key]) == set(d2[key]) for key in set(d1) | set(d2))
+# test_parking()
+# print(show(puzzle1))
+# print(valid_solution(puzzle1, 4))
+# print(grid((('*', locs(25, 2)),
+#               ('B', locs(19, 3, N)),
+#               ('P', locs(36, 3)),
+#               ('O', locs(45, 2, N)),
+#               ('Y', locs(49, 3)))))
+# print()
+# print((('*', (25, 26)), ('B', (19, 27, 35)), ('P', (36, 37, 38)), 
+#          ('O', (45, 53)), ('Y', (49, 50, 51)), 
+#          ('|', (0, 1, 2, 3, 4, 5, 6, 7, 56, 57, 58, 59, 60, 61, 62, 63, 
+#                 8, 16, 24, 32, 40, 48, 15, 23, 39, 47, 55)), 
+#             ('@', (31,))))
+
